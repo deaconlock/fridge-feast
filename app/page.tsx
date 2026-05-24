@@ -524,6 +524,9 @@ function CaptureView({
       <p className="text-sm text-zinc-500">
         Take a clear photo of each shelf. We&apos;ll compare to what we already know and update what&apos;s tracked.
       </p>
+      <p className="text-xs text-zinc-500">
+        <span className="font-medium text-zinc-700">Tip:</span> one close-up per shelf works much better than a single wide shot — vision models need pixels per item, and a packed fridge in one photo gives them almost none.
+      </p>
 
       <label className="flex h-40 cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-zinc-300 bg-zinc-50 text-zinc-600 hover:border-zinc-400 hover:bg-zinc-100">
         <span className="text-3xl">📷</span>
