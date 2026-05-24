@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { PostHogProvider } from "./providers";
@@ -15,7 +15,21 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Fridge Feast",
-  description: "Snap your fridge, get a recipe.",
+  description: "Track what's in your fridge and what's about to go off.",
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    title: "Fridge Feast",
+    statusBarStyle: "default",
+  },
+  icons: {
+    icon: "/icon-192.png",
+    apple: "/apple-touch-icon.png",
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#18181b",
 };
 
 export default function RootLayout({

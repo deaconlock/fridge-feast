@@ -1,0 +1,15 @@
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Fridge Feast//Phase A reminder//EN
+CALSCALE:GREGORIAN
+METHOD:PUBLISH
+BEGIN:VEVENT
+UID:fridge-feast-weekly-scan@fridge-feast.local
+DTSTAMP:20260524T000000Z
+DTSTART:20260524T180000
+DURATION:PT15M
+RRULE:FREQ=WEEKLY;BYDAY=SU
+SUMMARY:Scan fridge — Fridge Feast
+DESCRIPTION:Open Fridge Feast. Take a photo of each shelf. Review what's new\, what's still there\, and what's gone. Then act on anything in the "Use these soon" section.
+END:VEVENT
+END:VCALENDAR
