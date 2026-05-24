@@ -620,7 +620,7 @@ function CaptureView({
                 <input
                   type="file"
                   accept="image/*"
-                  multiple
+                  capture="environment"
                   className="sr-only"
                   onChange={(e) => onFiles(section.id, e)}
                   disabled={atLimit}
