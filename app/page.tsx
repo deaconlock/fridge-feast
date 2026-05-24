@@ -121,12 +121,7 @@ export default function Home() {
     const startedAt = performance.now();
 
     try {
-      const images = await Promise.all(
-        photos.map(async ({ file }) => ({
-          mimeType: file.type,
-          data: await fileToBase64(file),
-        })),
-      );
+      const images = await Promise.all(photos.map(({ file }) => compressImage(file, 1600, 0.82)));
 
       const res = await fetch("/api/extract", {
         method: "POST",
@@ -623,14 +618,46 @@ function LoadingPanel({ label }: { label: string }) {
   );
 }
 
-function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result as string;
-      resolve(result.split(",")[1]);
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
+async function compressImage(
+  file: File,
+  maxDim: number,
+  quality: number,
+): Promise<{ mimeType: string; data: string }> {
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, maxDim / Math.max(bitmap.width, bitmap.height));
+  const w = Math.round(bitmap.width * scale);
+  const h = Math.round(bitmap.height * scale);
+
+  const canvas =
+    typeof OffscreenCanvas !== "undefined"
+      ? new OffscreenCanvas(w, h)
+      : Object.assign(document.createElement("canvas"), { width: w, height: h });
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Could not create canvas context");
+  (ctx as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D).drawImage(bitmap, 0, 0, w, h);
+  bitmap.close?.();
+
+  const blob =
+    "convertToBlob" in canvas
+      ? await canvas.convertToBlob({ type: "image/jpeg", quality })
+      : await new Promise<Blob>((resolve, reject) => {
+          (canvas as HTMLCanvasElement).toBlob(
+            (b) => (b ? resolve(b) : reject(new Error("toBlob failed"))),
+            "image/jpeg",
+            quality,
+          );
+        });
+
+  const buf = await blob.arrayBuffer();
+  return { mimeType: "image/jpeg", data: arrayBufferToBase64(buf) };
+}
+
+function arrayBufferToBase64(buf: ArrayBuffer): string {
+  const bytes = new Uint8Array(buf);
+  let binary = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
 }
