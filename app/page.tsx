@@ -11,11 +11,18 @@ type InventoryItem = {
   addedAt: string;
 };
 
+type Detection = {
+  name: string;
+  photo_index: number;
+  bbox: [number, number, number, number];
+};
+
 type ReviewRow = {
   name: string;
   state: "kept" | "new" | "removed";
   existing?: InventoryItem;
   include: boolean;
+  thumb?: string;
 };
 
 const INVENTORY_KEY = "fridgefeast.inventory";
@@ -131,17 +138,33 @@ export default function Home() {
 
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
-      const detected: string[] = (data.ingredients ?? [])
-        .map((i: { name?: string }) => (i.name ?? "").trim())
-        .filter(Boolean);
+      const detections: Detection[] = (data.ingredients ?? [])
+        .map((i: { name?: string; photo_index?: number; bbox?: number[] }) => {
+          const name = (i.name ?? "").trim();
+          if (!name) return null;
+          const photo_index = typeof i.photo_index === "number" ? i.photo_index : 0;
+          const bbox = Array.isArray(i.bbox) && i.bbox.length === 4
+            ? (i.bbox as [number, number, number, number])
+            : ([0, 0, 1000, 1000] as [number, number, number, number]);
+          return { name, photo_index, bbox };
+        })
+        .filter((d: Detection | null): d is Detection => d !== null);
 
-      const rows = buildReviewRows(inventory, detected);
+      const imageBitmaps = await Promise.all(
+        images.map((img) => fetch(`data:${img.mimeType};base64,${img.data}`).then((r) => r.blob()).then(createImageBitmap)),
+      );
+      const thumbs = await Promise.all(
+        detections.map((d) => cropThumb(imageBitmaps[d.photo_index] ?? imageBitmaps[0], d.bbox, 96)),
+      );
+      imageBitmaps.forEach((b) => b.close?.());
+
+      const rows = buildReviewRows(inventory, detections, thumbs);
       setReviewRows(rows);
       setStage("review");
 
       track("extract_completed", {
         success: true,
-        ingredient_count: detected.length,
+        ingredient_count: detections.length,
         photo_count: photos.length,
         latency_ms: Math.round(performance.now() - startedAt),
       });
@@ -285,24 +308,29 @@ export default function Home() {
   );
 }
 
-function buildReviewRows(existing: InventoryItem[], detected: string[]): ReviewRow[] {
+function buildReviewRows(
+  existing: InventoryItem[],
+  detections: Detection[],
+  thumbs: string[],
+): ReviewRow[] {
   const existingByKey = new Map(existing.map((it) => [normalise(it.name), it]));
-  const detectedKeys = new Set(detected.map(normalise));
+  const detectedKeys = new Set(detections.map((d) => normalise(d.name)));
 
   const seenInDetected = new Set<string>();
   const rows: ReviewRow[] = [];
 
-  for (const name of detected) {
-    const key = normalise(name);
-    if (seenInDetected.has(key)) continue;
+  detections.forEach((d, i) => {
+    const key = normalise(d.name);
+    if (seenInDetected.has(key)) return;
     seenInDetected.add(key);
     const match = existingByKey.get(key);
+    const thumb = thumbs[i];
     if (match) {
-      rows.push({ name: match.name, state: "kept", existing: match, include: true });
+      rows.push({ name: match.name, state: "kept", existing: match, include: true, thumb });
     } else {
-      rows.push({ name, state: "new", include: true });
+      rows.push({ name: d.name, state: "new", include: true, thumb });
     }
-  }
+  });
 
   for (const item of existing) {
     if (!detectedKeys.has(normalise(item.name))) {
@@ -578,6 +606,16 @@ function ReviewView({
                     onChange={() => onToggle(idx)}
                     className="h-4 w-4 shrink-0"
                   />
+                  {row.thumb ? (
+                    /* eslint-disable-next-line @next/next/no-img-element */
+                    <img
+                      src={row.thumb}
+                      alt=""
+                      className="h-12 w-12 shrink-0 rounded object-cover ring-1 ring-zinc-200"
+                    />
+                  ) : (
+                    <div className="h-12 w-12 shrink-0 rounded bg-zinc-100 ring-1 ring-zinc-200" />
+                  )}
                   <span className="flex-1 truncate text-sm">{row.name}</span>
                   {row.existing && (
                     <span className="shrink-0 text-xs text-zinc-500">
@@ -650,6 +688,46 @@ async function compressImage(
 
   const buf = await blob.arrayBuffer();
   return { mimeType: "image/jpeg", data: arrayBufferToBase64(buf) };
+}
+
+async function cropThumb(
+  bitmap: ImageBitmap,
+  bbox: [number, number, number, number],
+  size: number,
+): Promise<string> {
+  const [y1raw, x1raw, y2raw, x2raw] = bbox;
+  const y1 = Math.min(y1raw, y2raw);
+  const y2 = Math.max(y1raw, y2raw);
+  const x1 = Math.min(x1raw, x2raw);
+  const x2 = Math.max(x1raw, x2raw);
+  const sx = Math.max(0, (x1 / 1000) * bitmap.width);
+  const sy = Math.max(0, (y1 / 1000) * bitmap.height);
+  const sw = Math.max(1, ((x2 - x1) / 1000) * bitmap.width);
+  const sh = Math.max(1, ((y2 - y1) / 1000) * bitmap.height);
+
+  const canvas =
+    typeof OffscreenCanvas !== "undefined"
+      ? new OffscreenCanvas(size, size)
+      : Object.assign(document.createElement("canvas"), { width: size, height: size });
+  const ctx = canvas.getContext("2d") as
+    | CanvasRenderingContext2D
+    | OffscreenCanvasRenderingContext2D
+    | null;
+  if (!ctx) return "";
+  ctx.drawImage(bitmap, sx, sy, sw, sh, 0, 0, size, size);
+
+  const blob =
+    "convertToBlob" in canvas
+      ? await canvas.convertToBlob({ type: "image/jpeg", quality: 0.8 })
+      : await new Promise<Blob>((resolve, reject) => {
+          (canvas as HTMLCanvasElement).toBlob(
+            (b) => (b ? resolve(b) : reject(new Error("toBlob failed"))),
+            "image/jpeg",
+            0.8,
+          );
+        });
+  const buf = await blob.arrayBuffer();
+  return `data:image/jpeg;base64,${arrayBufferToBase64(buf)}`;
 }
 
 function arrayBufferToBase64(buf: ArrayBuffer): string {

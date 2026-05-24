@@ -5,11 +5,14 @@ const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY ?? "" });
 
 type ImagePayload = { mimeType: string; data: string };
 
-const PROMPT = `You are looking at one or more photos of the inside of a fridge.
+const PROMPT = `You are looking at one or more photos of the inside of a fridge, provided in order (photo 0, photo 1, photo 2, ...).
 
 List every distinct food ingredient you can confidently identify. Be specific (e.g. "red bell pepper", not "vegetable"). Include condiments, sauces, leftovers, eggs, dairy, herbs, and anything wrapped or in containers if you can tell what it is.
 
-For each item, give a rough quantity estimate if visible (e.g. "half", "1 bunch", "small container"). If you can't tell, omit quantity.
+For each item:
+- Give a rough quantity estimate if visible (e.g. "half", "1 bunch", "small container"). Omit if unsure.
+- Return photo_index: which photo (0-based) the item appears in. If it appears in multiple photos, pick the clearest one.
+- Return bbox: a tight bounding box around the item in [y_min, x_min, y_max, x_max] format, normalized to 0-1000 within that photo. y is the vertical axis (0 = top), x is horizontal (0 = left). Keep the box tight to the item.
 
 Skip:
 - Empty containers
@@ -60,8 +63,15 @@ export async function POST(req: Request) {
                 properties: {
                   name: { type: Type.STRING },
                   quantity: { type: Type.STRING },
+                  photo_index: { type: Type.INTEGER },
+                  bbox: {
+                    type: Type.ARRAY,
+                    items: { type: Type.NUMBER },
+                    minItems: "4",
+                    maxItems: "4",
+                  },
                 },
-                required: ["name"],
+                required: ["name", "photo_index", "bbox"],
               },
             },
           },
