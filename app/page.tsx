@@ -11,6 +11,21 @@ type InventoryItem = {
   addedAt: string;
 };
 
+type Section = "wide" | "shelves" | "door" | "drawers";
+
+type PhotoEntry = {
+  file: File;
+  preview: string;
+  section: Section;
+};
+
+const SECTIONS: { id: Section; title: string; hint: string; suggested: string }[] = [
+  { id: "wide", title: "Wide shot", hint: "Open the fridge fully and snap the whole interior.", suggested: "1 photo" },
+  { id: "shelves", title: "Shelves", hint: "Close-up of each main shelf — arm's length, shelf fills the frame.", suggested: "~3 photos" },
+  { id: "door", title: "Door pockets", hint: "Straight-on shot of bottles, jars, condiments in the door.", suggested: "1 photo" },
+  { id: "drawers", title: "Drawers", hint: "Pull each drawer out, shoot straight down. Optional but worth it.", suggested: "1 per drawer" },
+];
+
 type Detection = {
   name: string;
   photo_index: number;
@@ -69,7 +84,7 @@ function newId(): string {
 export default function Home() {
   const [stage, setStage] = useState<Stage>("inventory");
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
-  const [photos, setPhotos] = useState<{ file: File; preview: string }[]>([]);
+  const [photos, setPhotos] = useState<PhotoEntry[]>([]);
   const [reviewRows, setReviewRows] = useState<ReviewRow[]>([]);
   const [reviewSourceImages, setReviewSourceImages] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -100,15 +115,16 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stage]);
 
-  function handleFiles(e: ChangeEvent<HTMLInputElement>) {
+  function handleFiles(section: Section, e: ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? []);
     const next = files.slice(0, PHOTO_LIMIT - photos.length).map((file) => ({
       file,
       preview: URL.createObjectURL(file),
+      section,
     }));
     setPhotos((prev) => [...prev, ...next]);
     if (next.length > 0) {
-      track("photo_added", { count: next.length, total_after: photos.length + next.length });
+      track("photo_added", { count: next.length, section, total_after: photos.length + next.length });
     }
     e.target.value = "";
   }
@@ -532,14 +548,16 @@ function CaptureView({
   onSubmit,
   onCancel,
 }: {
-  photos: { file: File; preview: string }[];
-  onFiles: (e: ChangeEvent<HTMLInputElement>) => void;
+  photos: PhotoEntry[];
+  onFiles: (section: Section, e: ChangeEvent<HTMLInputElement>) => void;
   onRemovePhoto: (idx: number) => void;
   onSubmit: () => void;
   onCancel: () => void;
 }) {
+  const atLimit = photos.length >= PHOTO_LIMIT;
+
   return (
-    <section className="flex flex-col gap-4">
+    <section className="flex flex-col gap-5">
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold">Scan your fridge</h2>
         <button
@@ -550,65 +568,71 @@ function CaptureView({
         </button>
       </div>
       <p className="text-sm text-zinc-500">
-        We&apos;ll compare to what we already know and update what&apos;s tracked.
+        Add photos to each section below. Drawers are optional — everything else helps.
       </p>
 
-      <details className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-700" open>
-        <summary className="cursor-pointer font-medium">How to scan (~5–7 photos)</summary>
-        <ol className="mt-2 flex list-decimal flex-col gap-1.5 pl-5 text-xs leading-relaxed">
-          <li>
-            <span className="font-medium">1 wide shot</span> — open the fridge fully, photo of the whole inside for context.
-          </li>
-          <li>
-            <span className="font-medium">1 close-up per main shelf</span> — arm&apos;s length, shelf fills the frame. Usually 3 shelves = 3 photos.
-          </li>
-          <li>
-            <span className="font-medium">1 photo of the door pockets</span> — straight on, get all the bottles &amp; condiments.
-          </li>
-          <li>
-            <span className="font-medium">1 photo per drawer</span> <span className="text-zinc-500">(optional but worth it)</span> — pull each drawer out and shoot straight down into it.
-          </li>
-        </ol>
-        <p className="mt-2 text-xs text-zinc-500">
-          Bare minimum that works: 1 wide + 3 shelf close-ups. The AI needs pixels per item — close-ups give 5–10× more than a single wide shot.
-        </p>
-      </details>
-
-      <label className="flex h-40 cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-zinc-300 bg-zinc-50 text-zinc-600 hover:border-zinc-400 hover:bg-zinc-100">
-        <span className="text-3xl">📷</span>
-        <span className="text-sm font-medium">
-          {photos.length === 0 ? "Add photos" : `Add more (${photos.length}/${PHOTO_LIMIT})`}
-        </span>
-        <input
-          type="file"
-          accept="image/*"
-          multiple
-          className="sr-only"
-          onChange={onFiles}
-          disabled={photos.length >= PHOTO_LIMIT}
-        />
-      </label>
-
-      {photos.length > 0 && (
-        <div className="grid grid-cols-3 gap-3">
-          {photos.map((p, i) => (
-            <div key={i} className="relative aspect-square overflow-hidden rounded-md bg-zinc-100">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={p.preview}
-                alt={`fridge ${i + 1}`}
-                className="h-full w-full object-cover"
-              />
-              <button
-                onClick={() => onRemovePhoto(i)}
-                className="absolute right-1 top-1 rounded-full bg-black/60 px-2 py-0.5 text-xs text-white"
-              >
-                ✕
-              </button>
+      {SECTIONS.map((section) => {
+        const sectionPhotos = photos
+          .map((p, i) => ({ p, i }))
+          .filter(({ p }) => p.section === section.id);
+        return (
+          <section key={section.id} className="flex flex-col gap-2">
+            <div className="flex items-baseline justify-between">
+              <h3 className="text-sm font-semibold">{section.title}</h3>
+              <span className="text-xs text-zinc-500">
+                {sectionPhotos.length} added · {section.suggested}
+              </span>
             </div>
-          ))}
-        </div>
-      )}
+            <p className="text-xs text-zinc-500">{section.hint}</p>
+
+            <div className="flex flex-wrap gap-2">
+              {sectionPhotos.map(({ p, i }) => (
+                <div
+                  key={i}
+                  className="relative h-20 w-20 shrink-0 overflow-hidden rounded-md bg-zinc-100 ring-1 ring-zinc-200"
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={p.preview}
+                    alt={`${section.title} ${i + 1}`}
+                    className="h-full w-full object-cover"
+                  />
+                  <button
+                    onClick={() => onRemovePhoto(i)}
+                    className="absolute right-0.5 top-0.5 rounded-full bg-black/60 px-1.5 py-0.5 text-[10px] text-white"
+                    aria-label="Remove photo"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+
+              <label
+                className={`flex h-20 w-20 shrink-0 cursor-pointer flex-col items-center justify-center gap-0.5 rounded-md border-2 border-dashed text-zinc-500 ${
+                  atLimit
+                    ? "cursor-not-allowed border-zinc-200 opacity-50"
+                    : "border-zinc-300 bg-zinc-50 hover:border-zinc-400 hover:bg-zinc-100"
+                }`}
+              >
+                <span className="text-xl">+</span>
+                <span className="text-[10px] font-medium">Add photo</span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="sr-only"
+                  onChange={(e) => onFiles(section.id, e)}
+                  disabled={atLimit}
+                />
+              </label>
+            </div>
+          </section>
+        );
+      })}
+
+      <p className="text-center text-xs text-zinc-400">
+        {photos.length}/{PHOTO_LIMIT} photos total
+      </p>
 
       <button
         onClick={onSubmit}
