@@ -189,13 +189,40 @@ export default function Home() {
   }
 
   function toggleReviewRow(idx: number) {
+    setReviewRows((prev) => {
+      const next = prev.map((row, i) => (i === idx ? { ...row, include: !row.include } : row));
+      const row = next[idx];
+      if (!row.include) {
+        track("review_item_marked_wrong", {
+          name: row.name,
+          state: row.state,
+          had_bbox: !!row.bbox,
+        });
+      }
+      return next;
+    });
+  }
+
+  function renameReviewRow(idx: number, newName: string) {
     setReviewRows((prev) =>
-      prev.map((row, i) => (i === idx ? { ...row, include: !row.include } : row)),
+      prev.map((row, i) => {
+        if (i !== idx) return row;
+        const trimmed = newName.trim();
+        if (!trimmed || trimmed === row.name) return row;
+        track("review_item_renamed", {
+          old_name: row.name,
+          new_name: trimmed,
+          state: row.state,
+        });
+        return { ...row, name: trimmed };
+      }),
     );
   }
 
   function confirmScan() {
-    const kept = reviewRows.filter((r) => r.state === "kept" && r.include).map((r) => r.existing!);
+    const kept = reviewRows
+      .filter((r) => r.state === "kept" && r.include)
+      .map((r) => ({ ...r.existing!, name: r.name }));
     const added: InventoryItem[] = reviewRows
       .filter((r) => r.state === "new" && r.include)
       .map((r) => ({ id: newId(), name: r.name, addedAt: new Date().toISOString() }));
@@ -311,6 +338,7 @@ export default function Home() {
           rows={reviewRows}
           sourceImages={reviewSourceImages}
           onToggle={toggleReviewRow}
+          onRename={renameReviewRow}
           onConfirm={confirmScan}
           onCancel={cancelReview}
         />
@@ -579,12 +607,14 @@ function ReviewView({
   rows,
   sourceImages,
   onToggle,
+  onRename,
   onConfirm,
   onCancel,
 }: {
   rows: ReviewRow[];
   sourceImages: string[];
   onToggle: (idx: number) => void;
+  onRename: (idx: number, newName: string) => void;
   onConfirm: () => void;
   onCancel: () => void;
 }) {
@@ -659,7 +689,11 @@ function ReviewView({
                   ) : (
                     <div className="h-12 w-12 shrink-0 rounded bg-zinc-100 ring-1 ring-zinc-200" />
                   )}
-                  <span className="flex-1 truncate text-sm">{row.name}</span>
+                  <EditableName
+                    value={row.name}
+                    disabled={row.state === "removed"}
+                    onCommit={(v) => onRename(idx, v)}
+                  />
                   {row.existing && (
                     <span className="shrink-0 text-xs text-zinc-500">
                       {ageLabel(ageDays(row.existing.addedAt))}
@@ -756,6 +790,46 @@ function ZoomModal({
       </div>
       <p className="mt-3 text-center text-xs text-white/60">Tap outside to close</p>
     </div>
+  );
+}
+
+function EditableName({
+  value,
+  disabled,
+  onCommit,
+}: {
+  value: string;
+  disabled?: boolean;
+  onCommit: (v: string) => void;
+}) {
+  const [draft, setDraft] = useState(value);
+  useEffect(() => {
+    setDraft(value);
+  }, [value]);
+
+  return (
+    <input
+      type="text"
+      value={draft}
+      disabled={disabled}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={() => {
+        const trimmed = draft.trim();
+        if (trimmed && trimmed !== value) {
+          onCommit(trimmed);
+        } else {
+          setDraft(value);
+        }
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+        if (e.key === "Escape") {
+          setDraft(value);
+          (e.target as HTMLInputElement).blur();
+        }
+      }}
+      className="min-w-0 flex-1 truncate rounded border border-transparent bg-transparent px-1 py-1 text-sm focus:border-zinc-300 focus:bg-white focus:outline-none disabled:opacity-60"
+    />
   );
 }
 
