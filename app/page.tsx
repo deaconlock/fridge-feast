@@ -23,6 +23,8 @@ type ReviewRow = {
   existing?: InventoryItem;
   include: boolean;
   thumb?: string;
+  photoIndex?: number;
+  bbox?: [number, number, number, number];
 };
 
 const INVENTORY_KEY = "fridgefeast.inventory";
@@ -69,6 +71,7 @@ export default function Home() {
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [photos, setPhotos] = useState<{ file: File; preview: string }[]>([]);
   const [reviewRows, setReviewRows] = useState<ReviewRow[]>([]);
+  const [reviewSourceImages, setReviewSourceImages] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -150,8 +153,9 @@ export default function Home() {
         })
         .filter((d: Detection | null): d is Detection => d !== null);
 
+      const sourceDataUrls = images.map((img) => `data:${img.mimeType};base64,${img.data}`);
       const imageBitmaps = await Promise.all(
-        images.map((img) => fetch(`data:${img.mimeType};base64,${img.data}`).then((r) => r.blob()).then(createImageBitmap)),
+        sourceDataUrls.map((url) => fetch(url).then((r) => r.blob()).then(createImageBitmap)),
       );
       const thumbs = await Promise.all(
         detections.map((d) => cropThumb(imageBitmaps[d.photo_index] ?? imageBitmaps[0], d.bbox, 96)),
@@ -160,6 +164,7 @@ export default function Home() {
 
       const rows = buildReviewRows(inventory, detections, thumbs);
       setReviewRows(rows);
+      setReviewSourceImages(sourceDataUrls);
       setStage("review");
 
       track("extract_completed", {
@@ -215,12 +220,14 @@ export default function Home() {
 
     discardPhotos();
     setReviewRows([]);
+    setReviewSourceImages([]);
     setStage("inventory");
   }
 
   function cancelReview() {
     discardPhotos();
     setReviewRows([]);
+    setReviewSourceImages([]);
     setStage("inventory");
   }
 
@@ -299,6 +306,7 @@ export default function Home() {
       {stage === "review" && (
         <ReviewView
           rows={reviewRows}
+          sourceImages={reviewSourceImages}
           onToggle={toggleReviewRow}
           onConfirm={confirmScan}
           onCancel={cancelReview}
@@ -326,9 +334,24 @@ function buildReviewRows(
     const match = existingByKey.get(key);
     const thumb = thumbs[i];
     if (match) {
-      rows.push({ name: match.name, state: "kept", existing: match, include: true, thumb });
+      rows.push({
+        name: match.name,
+        state: "kept",
+        existing: match,
+        include: true,
+        thumb,
+        photoIndex: d.photo_index,
+        bbox: d.bbox,
+      });
     } else {
-      rows.push({ name: d.name, state: "new", include: true, thumb });
+      rows.push({
+        name: d.name,
+        state: "new",
+        include: true,
+        thumb,
+        photoIndex: d.photo_index,
+        bbox: d.bbox,
+      });
     }
   });
 
@@ -548,18 +571,25 @@ function CaptureView({
 
 function ReviewView({
   rows,
+  sourceImages,
   onToggle,
   onConfirm,
   onCancel,
 }: {
   rows: ReviewRow[];
+  sourceImages: string[];
   onToggle: (idx: number) => void;
   onConfirm: () => void;
   onCancel: () => void;
 }) {
+  const [zoomRowIdx, setZoomRowIdx] = useState<number | null>(null);
   const newCount = rows.filter((r) => r.state === "new" && r.include).length;
   const removedCount = rows.filter((r) => r.state === "removed" && r.include).length;
   const keptCount = rows.filter((r) => r.state === "kept" && r.include).length;
+
+  const zoomRow = zoomRowIdx !== null ? rows[zoomRowIdx] : null;
+  const zoomSrc =
+    zoomRow && typeof zoomRow.photoIndex === "number" ? sourceImages[zoomRow.photoIndex] : null;
 
   return (
     <section className="flex flex-col gap-5">
@@ -607,12 +637,19 @@ function ReviewView({
                     className="h-4 w-4 shrink-0"
                   />
                   {row.thumb ? (
-                    /* eslint-disable-next-line @next/next/no-img-element */
-                    <img
-                      src={row.thumb}
-                      alt=""
-                      className="h-12 w-12 shrink-0 rounded object-cover ring-1 ring-zinc-200"
-                    />
+                    <button
+                      type="button"
+                      onClick={() => setZoomRowIdx(idx)}
+                      className="shrink-0 rounded ring-1 ring-zinc-200 active:opacity-70"
+                      aria-label={`See ${row.name} in photo`}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={row.thumb}
+                        alt=""
+                        className="h-12 w-12 rounded object-cover"
+                      />
+                    </button>
                   ) : (
                     <div className="h-12 w-12 shrink-0 rounded bg-zinc-100 ring-1 ring-zinc-200" />
                   )}
@@ -643,7 +680,76 @@ function ReviewView({
           Save update
         </button>
       </div>
+
+      {zoomRow && zoomSrc && zoomRow.bbox && (
+        <ZoomModal
+          src={zoomSrc}
+          bbox={zoomRow.bbox}
+          name={zoomRow.name}
+          onClose={() => setZoomRowIdx(null)}
+        />
+      )}
     </section>
+  );
+}
+
+function ZoomModal({
+  src,
+  bbox,
+  name,
+  onClose,
+}: {
+  src: string;
+  bbox: [number, number, number, number];
+  name: string;
+  onClose: () => void;
+}) {
+  const [y1raw, x1raw, y2raw, x2raw] = bbox;
+  const y1 = Math.min(y1raw, y2raw);
+  const y2 = Math.max(y1raw, y2raw);
+  const x1 = Math.min(x1raw, x2raw);
+  const x2 = Math.max(x1raw, x2raw);
+
+  return (
+    <div
+      onClick={onClose}
+      className="fixed inset-0 z-50 flex flex-col bg-black/90 p-4"
+      role="dialog"
+      aria-label={`Photo showing ${name}`}
+    >
+      <div className="flex items-center justify-between text-white">
+        <span className="truncate text-sm font-medium">{name}</span>
+        <button
+          onClick={onClose}
+          className="rounded-full bg-white/10 px-3 py-1 text-xs"
+        >
+          Close
+        </button>
+      </div>
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="relative mx-auto mt-4 flex w-full max-w-full flex-1 items-center justify-center overflow-auto"
+      >
+        <div className="relative inline-block">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={src}
+            alt=""
+            className="max-h-[80vh] max-w-full select-none object-contain"
+          />
+          <div
+            className="pointer-events-none absolute border-2 border-emerald-400 shadow-[0_0_0_9999px_rgba(0,0,0,0.45)]"
+            style={{
+              top: `${y1 / 10}%`,
+              left: `${x1 / 10}%`,
+              width: `${(x2 - x1) / 10}%`,
+              height: `${(y2 - y1) / 10}%`,
+            }}
+          />
+        </div>
+      </div>
+      <p className="mt-3 text-center text-xs text-white/60">Tap outside to close</p>
+    </div>
   );
 }
 
