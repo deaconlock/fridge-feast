@@ -550,11 +550,29 @@ function CaptureView({
         </button>
       </div>
       <p className="text-sm text-zinc-500">
-        Take a clear photo of each shelf. We&apos;ll compare to what we already know and update what&apos;s tracked.
+        We&apos;ll compare to what we already know and update what&apos;s tracked.
       </p>
-      <p className="text-xs text-zinc-500">
-        <span className="font-medium text-zinc-700">Tip:</span> one close-up per shelf works much better than a single wide shot — vision models need pixels per item, and a packed fridge in one photo gives them almost none.
-      </p>
+
+      <details className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-700" open>
+        <summary className="cursor-pointer font-medium">How to scan (~5–7 photos)</summary>
+        <ol className="mt-2 flex list-decimal flex-col gap-1.5 pl-5 text-xs leading-relaxed">
+          <li>
+            <span className="font-medium">1 wide shot</span> — open the fridge fully, photo of the whole inside for context.
+          </li>
+          <li>
+            <span className="font-medium">1 close-up per main shelf</span> — arm&apos;s length, shelf fills the frame. Usually 3 shelves = 3 photos.
+          </li>
+          <li>
+            <span className="font-medium">1 photo of the door pockets</span> — straight on, get all the bottles &amp; condiments.
+          </li>
+          <li>
+            <span className="font-medium">1 photo per drawer</span> <span className="text-zinc-500">(optional but worth it)</span> — pull each drawer out and shoot straight down into it.
+          </li>
+        </ol>
+        <p className="mt-2 text-xs text-zinc-500">
+          Bare minimum that works: 1 wide + 3 shelf close-ups. The AI needs pixels per item — close-ups give 5–10× more than a single wide shot.
+        </p>
+      </details>
 
       <label className="flex h-40 cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-zinc-300 bg-zinc-50 text-zinc-600 hover:border-zinc-400 hover:bg-zinc-100">
         <span className="text-3xl">📷</span>
