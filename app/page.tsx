@@ -131,7 +131,10 @@ export default function Home() {
     const startedAt = performance.now();
 
     try {
-      const images = await Promise.all(photos.map(({ file }) => compressImage(file, 1600, 0.82)));
+      const n = photos.length;
+      const maxDim = n <= 3 ? 1600 : n <= 6 ? 1280 : 1024;
+      const quality = n <= 3 ? 0.82 : 0.75;
+      const images = await Promise.all(photos.map(({ file }) => compressImage(file, maxDim, quality)));
 
       const res = await fetch("/api/extract", {
         method: "POST",
